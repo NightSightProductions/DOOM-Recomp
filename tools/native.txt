@@ -1,0 +1,10 @@
+# Guest functions in DOOMx64.exe replaced by native code (runtime/native.c).
+# Each name is a void N_x(CPU *c) taking Win64 arguments from c and returning in rax.
+# Identified by code signature; see the comments in runtime/native.c.
+141ea8d60 N_memmove     # MSVC memcpy/memmove (one overlap-safe routine)
+141eaadd0 N_memset
+141ec3500 N_strlen
+14154e530 N_inflate_fast  # zlib 1.2.3
+14033bd20 N_idStr_Cmp       # idStr::Cmp(const char *, const char *)
+14033bce0 N_idStr_CmpMember # idStr::Cmp(const char *) const (data pointer at +0x10)
+14033da90 N_idStr_Icmp      # idStr::Icmp(const char *, const char *)

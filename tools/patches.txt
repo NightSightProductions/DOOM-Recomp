@@ -1,0 +1,8 @@
+# Instruction patches for DOOMx64vk.exe, applied by the translator (make gen).
+# Each line: guest address, then C that replaces that instruction (C.<reg> names, as the translator emits).
+
+# Video menu, "Graphics API" option (F_141102160): list only Vulkan. The option's entries come from the label
+# table at 0x142343210 (#str_menu_video_opengl, #str_menu_video_vulkan); start the loop at the Vulkan entry.
+1411021e7 C.rbx = 0x142343218ull;
+# ... and select entry (r_renderAPI - 1): with OpenGL gone, Vulkan (r_renderAPI 1) is entry 0.
+1411022c8 C.rdx = (uint32_t)((uint32_t)C.rax ? (uint32_t)C.rax - 1 : 0);
