@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Builds DOOM.app from YOUR copy of DOOM (2016), the Windows version from Steam.
+# Builds DOOM.app from YOUR copy of DOOM (2016), the Windows version from Steam or GOG.
 #
 # Nothing from the game is stored in this repository: the game's executable and its two code
 # DLLs are translated to C on this machine and compiled for Apple Silicon, and the resulting app
@@ -20,22 +20,30 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 die() { echo "error: $*" >&2; exit 1; }
 step() { echo "==> [$1/6] $2"; }
 
-# The game folder: the argument, else the usual Steam locations (Windows Steam under CrossOver or Whisky).
+# The game folder: the argument, else the usual Steam and GOG locations (Windows Steam, GOG Galaxy or GOG's
+# offline installer under CrossOver or Whisky).
 find_game() {
-    local c
-    for c in \
-        "$HOME/Library/Application Support/CrossOver/Bottles/"*"/drive_c/Program Files (x86)/Steam/steamapps/common/DOOM" \
-        "$HOME/Library/Application Support/CrossOver/Bottles/"*"/drive_c/Program Files/Steam/steamapps/common/DOOM" \
-        "$HOME/Library/Containers/com.isaacmarovitz.Whisky/Bottles/"*"/drive_c/Program Files (x86)/Steam/steamapps/common/DOOM" \
-        "$HOME/Library/Application Support/Steam/steamapps/common/DOOM"; do
-        [[ -f "$c/DOOMx64vk.exe" ]] && { echo "$c"; return; }
+    local c b
+    for b in "$HOME/Library/Application Support/CrossOver/Bottles/"*/drive_c \
+             "$HOME/Library/Containers/com.isaacmarovitz.Whisky/Bottles/"*/drive_c; do
+        for c in \
+            "$b/Program Files (x86)/Steam/steamapps/common/DOOM" \
+            "$b/Program Files/Steam/steamapps/common/DOOM" \
+            "$b/GOG Games/DOOM"* \
+            "$b/Program Files (x86)/GOG Galaxy/Games/DOOM"*; do
+            [[ -f "$c/DOOMx64vk.exe" ]] && { echo "$c"; return; }
+        done
     done
+    c="$HOME/Library/Application Support/Steam/steamapps/common/DOOM"
+    [[ -f "$c/DOOMx64vk.exe" ]] && echo "$c"
 }
 GAME="${1:-$(find_game)}"
 [[ -n "$GAME" ]] || die "DOOM was not found. Pass the folder that contains DOOMx64vk.exe: scripts/build.sh /path/to/DOOM"
 
-# The Steam release this project is written against (addresses in tools/native.txt, interface layouts).
-SHA_EXE="3d8b4393649f80bdae85c19ae2c985c45ec9ac54f74ab04a18816e30ead63c21"          # DOOMx64vk.exe
+# The releases this project supports: the Steam and GOG builds of DOOMx64vk.exe differ (addresses in
+# tools/native*.txt and tools/patches*.txt; the Makefile picks the set by the same hashes); the DLLs are identical.
+SHA_EXE_STEAM="3d8b4393649f80bdae85c19ae2c985c45ec9ac54f74ab04a18816e30ead63c21"    # DOOMx64vk.exe (Steam)
+SHA_EXE_GOG="a32df8ffa042090f14fe0a200f1c5d7dddf9c947fac223916c252f826f1ecf11"      # DOOMx64vk.exe (GOG)
 SHA_SUPERSCRIPT="dda81d1ee6c4e6de702b91ab12676cb13b6561bad7fbafa0f512da494381f5fb"  # superscriptx64.dll
 SHA_BINK="c50d3f534986cb6b3f0eb32ecc9abc036d2bb670f85280c3ec10c5fdfe4f6b97"         # bink2w64.dll
 
@@ -46,14 +54,21 @@ done
 [[ "$(uname -m)" == "arm64" ]] || die "this build targets Apple Silicon Macs"
 
 step 2 "Verifying your copy of the game"
-check() {
-    [[ -f "$GAME/$1" ]] || die "$1 was not found in: $GAME"
-    local sha; sha="$(shasum -a 256 "$GAME/$1" | awk '{print $1}')"
-    [[ "$sha" == "$2" ]] || die "$1 is not from the supported Steam release of DOOM (SHA-256 $sha). Make sure the game is fully updated and not modified."
-}
-check DOOMx64vk.exe "$SHA_EXE"
-check superscriptx64.dll "$SHA_SUPERSCRIPT"
-check bink2w64.dll "$SHA_BINK"
+for f in DOOMx64vk.exe superscriptx64.dll bink2w64.dll; do
+    [[ -f "$GAME/$f" ]] || die "$f was not found in: $GAME"
+done
+sha_of() { shasum -a 256 "$GAME/$1" | awk '{print $1}'; }
+unsupported() { die "$1 is not from the supported Steam or GOG release of DOOM (SHA-256 $2). Make sure the game is fully updated and not modified."; }
+sha="$(sha_of DOOMx64vk.exe)"
+case "$sha" in
+    "$SHA_EXE_STEAM") EDITION=steam ;;
+    "$SHA_EXE_GOG")   EDITION=gog ;;
+    *) unsupported DOOMx64vk.exe "$sha" ;;
+esac
+export EDITION   # the Makefile's native replacements and patches for this release
+echo "    the $EDITION release"
+sha="$(sha_of superscriptx64.dll)"; [[ "$sha" == "$SHA_SUPERSCRIPT" ]] || unsupported superscriptx64.dll "$sha"
+sha="$(sha_of bink2w64.dll)";       [[ "$sha" == "$SHA_BINK" ]]        || unsupported bink2w64.dll "$sha"
 
 step 3 "Preparing the translator"
 if [[ ! -x "$ROOT/.venv/bin/python" ]]; then

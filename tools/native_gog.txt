@@ -1,0 +1,12 @@
+# Guest functions in the GOG release's DOOMx64vk.exe replaced by native code (runtime/native.c);
+# the same functions as tools/native.txt (the Steam release), found again in this build:
+# the CRT routines by their code (each pattern occurs once), inflate_fast as the zlib function
+# that inflate() calls and that references zlib's "invalid ..." messages, the idStr comparisons
+# as the small signed-char compare loops (the same 0x900 shift from the Steam build for all three).
+141ea6d20 N_memmove     # MSVC memcpy/memmove (one overlap-safe routine)
+141ea8d90 N_memset
+141ec14c0 N_strlen
+14154b810 N_inflate_fast  # zlib 1.2.3
+14033b420 N_idStr_Cmp       # idStr::Cmp(const char *, const char *)
+14033b3e0 N_idStr_CmpMember # idStr::Cmp(const char *) const (data pointer at +0x10)
+14033d190 N_idStr_Icmp      # idStr::Icmp(const char *, const char *)

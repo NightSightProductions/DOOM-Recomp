@@ -1,5 +1,13 @@
 // DOOM (2016) settings for the game-agnostic runtime (see game.h).
 #include "game.h"
+#include <stdlib.h>
+
+#ifdef DOOM_EDITION_GOG
+// The GOG release (built with EDITION=gog): its steam_api64.dll is GOG's adapter to Galaxy, and the player
+// may not own DOOM on Steam, so the Steam layer always runs offline (the player is "Player", saves stay
+// local, no Steam Cloud sync), whether or not the Steam client is running.
+__attribute__((constructor)) static void gog_steam_offline(void) { setenv("DOOM_STEAM_OFFLINE", "1", 0); }
+#endif
 
 static const char *const doom_args[] = {
     // Always Vulkan: the OpenGL renderer is the game's other executable (DOOMx64.exe), which is not part of

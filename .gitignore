@@ -19,6 +19,8 @@
 !/tools/import_saves.py
 !/tools/native.txt
 !/tools/patches.txt
+!/tools/native_gog.txt
+!/tools/patches_gog.txt
 !/tests/
 .DS_Store
 __pycache__/
