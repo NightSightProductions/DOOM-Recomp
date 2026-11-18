@@ -40,7 +40,7 @@ targets:
         HEADER_SEARCH_PATHS: "$(SRCROOT)/../../framework/runtime $(SRCROOT)/../../framework/third_party/vulkan/include"
         OTHER_CFLAGS: "-include $(SRCROOT)/../runtime/ios_compat.h -DRT_RELAX_FP"
         LIBRARY_SEARCH_PATHS: "$(SRCROOT)/../build"
-        OTHER_LDFLAGS: "-lgame -Wl,-force_load,$(SRCROOT)/../build/libsuperscriptx64.a -Wl,-force_load,$(SRCROOT)/../build/libbink2w64.a -Wl,-export_dynamic -framework Metal -framework QuartzCore -framework AudioToolbox -framework CoreAudio -framework AVFAudio -framework GameController -framework CoreHaptics -framework CoreGraphics -framework CoreFoundation"
+        OTHER_LDFLAGS: "-lgame -Wl,-force_load,$(SRCROOT)/../build/libsuperscriptx64.a -Wl,-force_load,$(SRCROOT)/../build/libbink2w64.a -Wl,-export_dynamic -framework Metal -framework QuartzCore -framework AudioToolbox -framework CoreAudio -framework AVFAudio -framework GameController -framework CoreHaptics -framework CoreMotion -framework CoreGraphics -framework CoreFoundation"
     # The Vulkan driver is dlopen'd at run time (vk_ios.c): embedded and signed, not linked.
     dependencies:
       - framework: ../../ios-kk-ci/out/libvulkan_kosmickrisp.dylib

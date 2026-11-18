@@ -9,6 +9,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <GameController/GameController.h>
+#import <CoreMotion/CoreMotion.h>
 #include <stdatomic.h>
 #include <pthread.h>
 #include "cocoa.h"
@@ -31,6 +32,10 @@ static int g_scr_w = 1920, g_scr_h = 1080, g_scr_hz = 60;   // landscape native 
 static UIViewController *g_root;
 static UIView *g_controls;
 static int g_vw, g_vh;                          // emulated display mode (0 = native)
+static double g_sens = 1.0;                     // look sensitivity multiplier (SENS button), touch and gyro
+static _Atomic int g_iface_orient;               // UIInterfaceOrientation, kept current from the main thread
+static _Atomic int g_gyro_on;                   // gyro aiming (GYRO button)
+static const double kSensSteps[] = { 0.5, 0.75, 1.0, 1.5, 2.0, 3.0 };
 
 static void on_main(dispatch_block_t b) { if ([NSThread isMainThread]) b(); else dispatch_sync(dispatch_get_main_queue(), b); }
 int cocoa_is_main_thread(void) { return [NSThread isMainThread]; }
@@ -103,7 +108,7 @@ static void mouse_motion(uint64_t hwnd, int dx, int dy, int x, int y) {
     CGPoint p = [t locationInView:self];
     if (hypot(p.x - self.start.x, p.y - self.start.y) > (atomic_load(&g_pointer_locked) ? 0 : 8)) self.moved = YES;
     if (!self.moved) return;
-    double sens = atomic_load(&g_pointer_locked) ? 1.6 : 1.0;   // look speed in gameplay
+    double sens = atomic_load(&g_pointer_locked) ? 1.6 * g_sens : 1.0;   // look speed in gameplay
     int dx = (int)lround((p.x - self.last.x) * self.pxPerPt * sens), dy = (int)lround((p.y - self.last.y) * self.pxPerPt * sens);
     self.last = p;
     mouse_motion(self.hwnd, dx, dy, clampi(atomic_load(&g_cx) + dx, 0, self.gw - 1), clampi(atomic_load(&g_cy) + dy, 0, self.gh - 1));
@@ -142,7 +147,7 @@ static void overlay_front(void);
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 - (BOOL)prefersPointerLocked { return atomic_load(&g_pointer_locked); }
-- (void)viewDidLayoutSubviews { [super viewDidLayoutSubviews]; relayout_all(); }
+- (void)viewDidLayoutSubviews { [super viewDidLayoutSubviews]; relayout_all(); atomic_store(&g_iface_orient, (int)self.view.window.windowScene.interfaceOrientation); }
 @end
 
 UIViewController *cocoa_ios_root(void) {   // main thread
@@ -438,8 +443,8 @@ static void build_overlay(void) {
 - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self end:ts]; }
 @end
 
-typedef enum { ACT_KEY, ACT_MOUSE, ACT_WHEEL } ActKind;
-@interface RTActionButton : UIButton @property ActKind kind; @property int code, arg; @end
+typedef enum { ACT_KEY, ACT_MOUSE, ACT_WHEEL, ACT_CUSTOM } ActKind;
+@interface RTActionButton : UIButton @property ActKind kind; @property int code, arg; @property(copy) void (^tap)(RTActionButton *); @end
 @implementation RTActionButton
 - (void)fire:(int)down {
     uint64_t hwnd = atomic_load(&g_key_hwnd);
@@ -451,8 +456,20 @@ typedef enum { ACT_KEY, ACT_MOUSE, ACT_WHEEL } ActKind;
     }
     self.alpha = down ? 1.0 : 0.75;
 }
-- (void)pressed { [self fire:1]; }
-- (void)released { [self fire:0]; }
+- (void)pressed { if (self.kind != ACT_CUSTOM) [self fire:1]; }
+- (void)released { if (self.kind == ACT_CUSTOM) { if (self.tap) self.tap(self); } else [self fire:0]; }
+// Hold FIRE and drag the same finger to keep aiming while firing.
+- (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+    [super touchesMoved:ts withEvent:e];
+    if (!(self.kind == ACT_MOUSE && self.code == 1)) return;
+    UITouch *t = ts.anyObject;
+    CGPoint p = [t locationInView:g_root.view], q = [t previousLocationInView:g_root.view];
+    uint64_t hwnd = atomic_load(&g_key_hwnd);
+    double k = 1.6 * g_sens;
+    for (RTView *v in g_views) if (v.hwnd == hwnd) k *= v.pxPerPt;
+    int dx = (int)lround((p.x - q.x) * k), dy = (int)lround((p.y - q.y) * k);
+    if (dx || dy) mouse_motion(hwnd, dx, dy, clampi(atomic_load(&g_cx) + dx, 0, 4095), clampi(atomic_load(&g_cy) + dy, 0, 4095));
+}
 @end
 
 static RTActionButton *action(NSString *title, ActKind kind, int code, int arg, CGFloat size) {
@@ -470,12 +487,33 @@ static RTActionButton *action(NSString *title, ActKind kind, int code, int arg, 
 }
 @interface RTControlsView : UIView @property(strong) RTStick *stick; @property(strong) NSArray<RTActionButton *> *buttons; @property(strong) NSArray<NSValue *> *offsets; @end
 @implementation RTControlsView
-- (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e { UIView *v = [super hitTest:p withEvent:e]; return v == self ? nil : v; }   // empty space: the game view looks
+// The left half of the screen is a floating stick: a touch there puts the stick under the finger. Buttons keep their own
+// touches; the right half's empty space goes to the game view (look).
+- (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
+    UIView *v = [super hitTest:p withEvent:e];
+    if (v != self) return v;
+    return p.x < self.bounds.size.width * 0.5 ? self : nil;
+}
+- (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+    if (self.stick.tracking) return;
+    UITouch *t = ts.anyObject; CGPoint p = [t locationInView:self];
+    CGFloat h = self.stick.bounds.size.width / 2;
+    p.x = fmax(h, fmin(p.x, self.bounds.size.width - h)); p.y = fmax(h, fmin(p.y, self.bounds.size.height - h));
+    self.stick.center = p; self.stick.alpha = 1;
+    self.stick.tracking = t; [self.stick update:t];
+}
+- (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { if (self.stick.tracking && [ts containsObject:self.stick.tracking]) [self.stick update:self.stick.tracking]; }
+- (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+    if (!self.stick.tracking || ![ts containsObject:self.stick.tracking]) return;
+    [self.stick end:ts];
+    self.stick.alpha = 0.55; [self setNeedsLayout];   // back to the resting spot
+}
+- (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self touchesEnded:ts withEvent:e]; }
 - (void)layoutSubviews {
     [super layoutSubviews];
     UIEdgeInsets in = self.safeAreaInsets; CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
     CGFloat sz = 150;
-    self.stick.frame = CGRectMake(in.left + 40, H - in.bottom - sz - 30, sz, sz);
+    if (!self.stick.tracking) self.stick.frame = CGRectMake(in.left + 40, H - in.bottom - sz - 30, sz, sz);
     for (NSUInteger i = 0; i < self.buttons.count; i++) {       // offsets are from the bottom-right corner
         CGPoint o = self.offsets[i].CGPointValue;
         self.buttons[i].center = CGPointMake(W - in.right - o.x, H - in.bottom - o.y);
@@ -486,6 +524,7 @@ static void build_controls(void) {
     RTControlsView *v = [RTControlsView new];
     v.translatesAutoresizingMaskIntoConstraints = NO; v.hidden = YES;
     v.stick = [[RTStick alloc] initWithFrame:CGRectMake(0, 0, 150, 150)];
+    v.stick.userInteractionEnabled = NO; v.stick.alpha = 0.55;   // resting hint; the controls view drives it
     [v addSubview:v.stick];
     struct { const char *t; ActKind k; int code, arg; CGFloat size, x, y; } defs[] = {
         {"FIRE", ACT_MOUSE, 1, 0, 104, 95, 95},
@@ -498,12 +537,37 @@ static void build_controls(void) {
         {"SWAP", ACT_KEY, 12, 0, 58, 385, 62},
         {"WPN \u25B2", ACT_WHEEL, 0, 120, 52, 45, 305},
         {"WPN \u25BC", ACT_WHEEL, 0, -120, 52, 45, 365},
+        {"SENS\n1.0x", ACT_CUSTOM, 0, 0, 52, 45, 425},
+        {"GYRO\noff", ACT_CUSTOM, 1, 0, 52, 45, 485},
     };
     NSMutableArray *bs = [NSMutableArray array], *os = [NSMutableArray array];
     for (size_t i = 0; i < sizeof defs / sizeof *defs; i++) {
         RTActionButton *b = action([NSString stringWithUTF8String:defs[i].t], defs[i].k, defs[i].code, defs[i].arg, defs[i].size);
         b.titleLabel.numberOfLines = 2; b.titleLabel.textAlignment = NSTextAlignmentCenter;
         b.titleLabel.font = [UIFont boldSystemFontOfSize:defs[i].size > 80 ? 20 : 11];
+        if (defs[i].k == ACT_CUSTOM) {
+            if (defs[i].code == 0) {   // SENS: next step
+                NSInteger idx = 2; for (NSInteger j = 0; j < 6; j++) if (fabs(kSensSteps[j] - g_sens) < 0.01) idx = j;
+                void (^show)(RTActionButton *) = ^(RTActionButton *bb) { [bb setTitle:[NSString stringWithFormat:@"SENS\n%.2gx", g_sens] forState:UIControlStateNormal]; };
+                show(b);
+                b.tap = ^(RTActionButton *bb) {
+                    NSInteger k = 2; for (NSInteger j = 0; j < 6; j++) if (fabs(kSensSteps[j] - g_sens) < 0.01) k = j;
+                    g_sens = kSensSteps[(k + 1) % 6]; show(bb);
+                    [NSUserDefaults.standardUserDefaults setDouble:g_sens forKey:@"sens"];
+                };
+                (void)idx;
+            } else {                    // GYRO: toggle
+                void (^show)(RTActionButton *) = ^(RTActionButton *bb) {
+                    [bb setTitle:atomic_load(&g_gyro_on) ? @"GYRO\non" : @"GYRO\noff" forState:UIControlStateNormal];
+                    bb.backgroundColor = [UIColor colorWithWhite:1 alpha:atomic_load(&g_gyro_on) ? 0.5 : 0.22];
+                };
+                show(b);
+                b.tap = ^(RTActionButton *bb) {
+                    atomic_store(&g_gyro_on, !atomic_load(&g_gyro_on)); show(bb);
+                    [NSUserDefaults.standardUserDefaults setBool:atomic_load(&g_gyro_on) forKey:@"gyro"];
+                };
+            }
+        }
         [v addSubview:b]; [bs addObject:b]; [os addObject:[NSValue valueWithCGPoint:CGPointMake(defs[i].x, defs[i].y)]];
     }
     v.buttons = bs; v.offsets = os;
@@ -512,6 +576,41 @@ static void build_controls(void) {
     [NSLayoutConstraint activateConstraints:@[
         [v.leadingAnchor constraintEqualToAnchor:g_root.view.leadingAnchor], [v.trailingAnchor constraintEqualToAnchor:g_root.view.trailingAnchor],
         [v.topAnchor constraintEqualToAnchor:g_root.view.topAnchor], [v.bottomAnchor constraintEqualToAnchor:g_root.view.bottomAnchor]]];
+}
+
+
+// ---------------- gyro aiming ----------------
+// Turning the phone about the world's vertical axis turns the view; tilting it about the screen's horizontal axis
+// looks up/down. Rotation rates come from CMDeviceMotion (gravity gives the vertical axis, so it works at any tilt).
+static CMMotionManager *g_motion;
+static void start_gyro(void) {
+    g_motion = [CMMotionManager new];
+    if (!g_motion.deviceMotionAvailable) { rt_log("[cocoa] no gyro\n"); return; }
+    g_motion.deviceMotionUpdateInterval = 1.0 / 120;
+    static double accx, accy, lastT;
+    [g_motion startDeviceMotionUpdatesToQueue:[NSOperationQueue new] withHandler:^(CMDeviceMotion *m, NSError *err) {
+        if (!m) return;
+        double dt = lastT ? m.timestamp - lastT : 0; lastT = m.timestamp;
+        if (dt <= 0 || dt > 0.1 || !atomic_load(&g_gyro_on) || g_controls.hidden) return;
+        uint64_t hwnd = atomic_load(&g_key_hwnd); if (!hwnd) return;
+        CMRotationRate r = m.rotationRate; CMAcceleration g = m.gravity;
+        { static double px, py, pz; static int cnt; static double gx, gy, gz;   // diagnostics: peak rate per axis every 0.5 s
+          if (fabs(r.x) > fabs(px)) px = r.x; if (fabs(r.y) > fabs(py)) py = r.y; if (fabs(r.z) > fabs(pz)) pz = r.z;
+          gx += g.x; gy += g.y; gz += g.z;
+          if (++cnt >= 60) { rt_log("[gyro] peak rate x %+.2f y %+.2f z %+.2f rad/s | gravity x %+.2f y %+.2f z %+.2f\n", px, py, pz, gx / cnt, gy / cnt, gz / cnt); px = py = pz = gx = gy = gz = 0; cnt = 0; } }
+        // Two orthogonal axes from gravity, whatever way the sensors are mounted: yaw about the world's vertical (up = -gravity),
+        // pitch about the screen's horizontal axis = up x screen-normal (z), normalized. (On this phone gravity lies along
+        // the device's y axis in play, not x: assuming a fixed axis for pitch gave none.)
+        double ux = -g.x, uy = -g.y, uz = -g.z;
+        double yaw = r.x * ux + r.y * uy + r.z * uz;       // + = turning left
+        double rx = uy, ry = -ux, rn = sqrt(rx * rx + ry * ry);   // screen-right in device coordinates
+        double pitchUp = rn > 0.3 ? (r.x * rx + r.y * ry) / rn : 0;   // + = looking up
+        double pitch = -pitchUp;                           // mouse y grows downward
+        double k = 450.0 * g_sens * dt;                            // mouse counts per rad/s
+        accx += -yaw * k; accy += pitch * k;
+        int dx = (int)accx, dy = (int)accy; accx -= dx; accy -= dy;
+        if (dx || dy) mouse_motion(hwnd, dx, dy, clampi(atomic_load(&g_cx) + dx, 0, 4095), clampi(atomic_load(&g_cy) + dy, 0, 4095));
+    }];
 }
 
 // ProMotion: tell the system this app wants 60-120 Hz. Without a request iOS can settle the display at 30 Hz when
@@ -539,7 +638,9 @@ void cocoa_ios_start(void) {
     cocoa_ios_screen_init();
     build_overlay();
     request_high_refresh();
+    { NSUserDefaults *d = NSUserDefaults.standardUserDefaults; if ([d objectForKey:@"sens"]) g_sens = [d doubleForKey:@"sens"]; atomic_store(&g_gyro_on, [d boolForKey:@"gyro"]); }
     build_controls();
+    start_gyro();
     NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
     if (GCKeyboard.coalescedKeyboard) attach_keyboard(GCKeyboard.coalescedKeyboard);
     [nc addObserverForName:GCKeyboardDidConnectNotification object:nil queue:nil usingBlock:^(NSNotification *n) { attach_keyboard(n.object); }];
