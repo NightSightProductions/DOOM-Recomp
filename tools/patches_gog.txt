@@ -1,0 +1,8 @@
+# Instruction patches for the GOG release's DOOMx64vk.exe, applied by the translator (make gen EDITION=gog).
+# The same patches as tools/patches.txt (the Steam release); the function is 0x4600 lower in this build.
+
+# Video menu, "Graphics API" option (F_1410fdb60): list only Vulkan. The option's entries come from the label
+# table at 0x1423414b0 (#str_menu_video_opengl, #str_menu_video_vulkan); start the loop at the Vulkan entry.
+1410fdbe7 C.rbx = 0x1423414b8ull;
+# ... and select entry (r_renderAPI - 1): with OpenGL gone, Vulkan (r_renderAPI 1) is entry 0.
+1410fdcc8 C.rdx = (uint32_t)((uint32_t)C.rax ? (uint32_t)C.rax - 1 : 0);

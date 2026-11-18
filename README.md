@@ -21,9 +21,9 @@ are included in this repository or in its downloads.
 
 ## Playing on macOS
 
-  1. Install the **Windows** version of **DOOM** (2016) through Steam, for example with Steam for
-     Windows in [CrossOver](https://www.codeweavers.com/crossover) or Whisky. Make sure the game is
-     fully downloaded and updated.
+  1. Install the **Windows** version of **DOOM** (2016) from Steam or GOG, for example with Steam for
+     Windows or GOG's installer in [CrossOver](https://www.codeweavers.com/crossover) or Whisky. Make
+     sure the game is fully downloaded and updated.
   2. Download `DOOM-Recomp-macOS.dmg` from the [Releases](https://github.com/NightSightProductions/DOOM-Recomp/releases) page.
   3. Open it and run **Install DOOM Recomp**. The installer finds your copy of the game, checks that
      it is the supported release, and builds the game on your Mac. The build takes about 15 minutes,
@@ -37,11 +37,14 @@ click **Open Anyway**.
 
 Some things worth knowing:
   - Saved games and settings are stored in `~/Library/Application Support/doom-recomp`. The game
-    data is read from your Steam installation, which is never modified.
+    data is read from your installation of the game, which is never modified.
   - Online features (Steam sign-in, achievements and stats, Bethesda.net, the main menu's live
     tiles) work when the Steam for Mac client is running and logged in. DOOM Recomp uses the copy of
     Valve's `libsteam_api.dylib` that comes with the Steam client, so nothing else needs to be installed;
     without Steam, the game runs offline.
+  - The GOG release always runs offline: the campaign, saves and settings work as with Steam, but there
+    are no achievements, cloud saves or online features (GOG Galaxy is not supported). The Steam Play
+    tool below needs DOOM in your Steam library, so the installer skips it for a GOG copy.
   - Use **Adaptive** vertical sync. **On** is classic double-buffered vsync, which drops to 30 FPS
     whenever a frame runs long, as it does on Windows.
   - The fullscreen resolutions in the game's Video settings are scaled to your screen; windowed
@@ -89,11 +92,13 @@ NightSightProductions' static recompiler, included as the `framework/` submodule
     - `src/native_idtech.c` and `tools/native.txt`: hot routines inside the executable replaced with
       native code (memcpy/memset/strlen, zlib's `inflate_fast`, id Tech's string compares);
     - `tools/patches.txt`: instruction patches (hiding the OpenGL option in the Video menu);
+    - `tools/native_gog.txt` and `tools/patches_gog.txt`: the same for the GOG release, a different
+      build of the executable (the Makefile picks the set by the executable's SHA-256);
     - the installer, Steam shortcut and save import tools.
   - KosmicKrisp is built from Mesa source (`make kosmickrisp`, with the framework's patches) because
     the id Tech workarounds it needs are not in a release yet; the installer ships it prebuilt.
   - The build happens on your machine from your copy of the game, and the app loads the game's data
-    from your Steam installation at run time.
+    from your installation at run time.
 
 ## License
 
@@ -153,7 +158,7 @@ Note: Intel Macs are not supported.
 
 |                                                                       | Min Version |
 |-----------------------------------------------------------------------|-------------|
-| DOOM (2016), Windows version from Steam                               | -           |
+| DOOM (2016), Windows version from Steam or GOG                        | -           |
 | Xcode Command Line Tools <br> `xcode-select --install`                | 26          |
 | Python 3 (included with the Command Line Tools)                       | 3.9         |
 
@@ -174,10 +179,10 @@ static SPIRV-Tools.
 
      `make kosmickrisp`
 
-  3. Build the game from your copy (the usual CrossOver and Whisky Steam locations are searched if no
-     path is given):
+  3. Build the game from your copy (the usual CrossOver and Whisky Steam and GOG locations are searched
+     if no path is given):
 
-     `scripts/build.sh "/path/to/steamapps/common/DOOM"`
+     `scripts/build.sh "/path/to/steamapps/common/DOOM"` (or the GOG folder with `DOOMx64vk.exe`)
 
      This verifies the game files, translates them (`make gen gen-dll gen-bink`), compiles them
      (`make boot`) and creates `build/DOOM.app` (`make app`), using the game's own icon from your install.

@@ -17,8 +17,11 @@ let setupTitle = "DOOM Recomp Setup"
 let bundleID = "com.nightsightproductions.doom-recomp"
 let gameTitle = "DOOM"
 let gameAppName = "DOOM"   // the installed app: "DOOM.app"
-// DOOMx64vk.exe of the Steam release this project supports (must match scripts/build.sh).
-let expectedSHA256 = "3d8b4393649f80bdae85c19ae2c985c45ec9ac54f74ab04a18816e30ead63c21"
+// DOOMx64vk.exe of the releases this project supports, by SHA-256 (must match scripts/build.sh and the Makefile).
+let supportedReleases = [
+    "3d8b4393649f80bdae85c19ae2c985c45ec9ac54f74ab04a18816e30ead63c21": "Steam",
+    "a32df8ffa042090f14fe0a200f1c5d7dddf9c947fac223916c252f826f1ecf11": "GOG",
+]
 
 // MARK: - Install state
 
@@ -29,6 +32,7 @@ final class InstallState {
     var importSaves = true
     var steamPlay = false   // NightSight Recomp, the Steam Play tool (needs NotProton); opt-in
     var gameApp: URL?   // the game folder (contains DOOMx64vk.exe)
+    var release: String?   // "Steam" or "GOG", once the game folder is checked
 
     let resources = Bundle.main.resourceURL!
     var sourceDir: URL { resources.appendingPathComponent("source") }
@@ -73,16 +77,25 @@ func sha256(of url: URL) -> String? {
 }
 
 // DOOM is the Windows release: look in the Steam folders of CrossOver and Whisky bottles (and their
-// extra Steam libraries, listed in libraryfolders.vdf), then in Mac Steam's own folder.
+// extra Steam libraries, listed in libraryfolders.vdf), then in Mac Steam's own folder, then in the bottles'
+// GOG folders (GOG's offline installer: C:\GOG Games\DOOM…; GOG Galaxy: C:\Program Files (x86)\GOG Galaxy\Games\DOOM…).
 func detectGame() -> URL? {
     let fm = FileManager.default
     let home = fm.homeDirectoryForCurrentUser
     var steamDirs: [URL] = []
+    var gogCandidates: [URL] = []
     for bottles in ["Library/Application Support/CrossOver/Bottles", "Library/Containers/com.isaacmarovitz.Whisky/Bottles"] {
         let root = home.appendingPathComponent(bottles)
         for b in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] {
+            let driveC = root.appendingPathComponent(b).appendingPathComponent("drive_c")
             for pf in ["Program Files (x86)", "Program Files"] {
-                steamDirs.append(root.appendingPathComponent(b).appendingPathComponent("drive_c/\(pf)/Steam/steamapps"))
+                steamDirs.append(driveC.appendingPathComponent("\(pf)/Steam/steamapps"))
+            }
+            for gog in ["GOG Games", "Program Files (x86)/GOG Galaxy/Games"] {
+                let dir = driveC.appendingPathComponent(gog)
+                for name in ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).sorted() where name.hasPrefix("DOOM") {
+                    gogCandidates.append(dir.appendingPathComponent(name))
+                }
             }
         }
     }
@@ -105,7 +118,7 @@ func detectGame() -> URL? {
             }
         }
     }
-    return candidates.first(where: isGameApp)
+    return (candidates + gogCandidates).first(where: isGameApp)
 }
 
 // MARK: - Small view helpers
@@ -185,7 +198,7 @@ final class WelcomePage: WizardPage {
         let title = label("Welcome to \(appName) Setup", bold: true, size: 16)
         title.textColor = .black
         let body = label("Setup builds a native Apple Silicon version of \(gameTitle) from your own copy of the game.\n\n" +
-                         "You need the Windows version of DOOM (2016) from Steam (for example installed with CrossOver), " +
+                         "You need the Windows version of DOOM (2016) from Steam or GOG (for example installed with CrossOver), " +
                          "Apple's Command Line Tools (Setup will offer to install them) and an internet connection. " +
                          "Building takes about 15 minutes and needs about 4 GB of temporary disk space.\n\n" +
                          "Click Next to continue.")
@@ -342,7 +355,7 @@ final class GameFilesPage: WizardPage {
 
     init(state: InstallState) {
         self.state = state
-        let top = label("Choose the DOOM folder from your Steam installation of \(gameTitle) (2016, the Windows version): the folder " +
+        let top = label("Choose the DOOM folder from your Steam or GOG installation of \(gameTitle) (2016, the Windows version): the folder " +
                         "that contains DOOMx64vk.exe. It is only read: Setup translates the game's code on this Mac, and " +
                         "\(appName) loads the game data from this location. A copy found on this Mac is filled in; use Browse… to choose a different one.")
         let box = NSBox()
@@ -380,13 +393,14 @@ final class GameFilesPage: WizardPage {
             alert.runModal()
             return false
         }
-        guard sha256(of: gameExecutable(app)) == expectedSHA256 else {
+        guard let sha = sha256(of: gameExecutable(app)), let release = supportedReleases[sha] else {
             alert.messageText = "This copy of the game is not supported."
-            alert.informativeText = "\(appName) is built for the current Steam release of \(gameTitle) (2016) for Windows. " +
+            alert.informativeText = "\(appName) is built for the current Steam and GOG releases of \(gameTitle) (2016) for Windows. " +
                                     "Make sure the game is fully downloaded and updated, and has not been modified."
             alert.runModal()
             return false
         }
+        state.release = release
         return true
     }
 
@@ -585,7 +599,10 @@ final class Installation {
             _ = try? runTool("/usr/bin/python3", [source.appendingPathComponent("tools/steam_shortcut.py").path, "--app", app.path, "--restart-steam"], quiet: true)
         }
 
-        if state.steamPlay {
+        // The Steam Play tool starts the port from Steam's own DOOM entry, which a GOG copy doesn't have.
+        if state.steamPlay && state.release == "GOG" {
+            log("Skipping NightSight Recomp, the Steam Play tool: it needs DOOM in your Steam library, and this is the GOG release")
+        } else if state.steamPlay {
             log("Registering with NightSight Recomp, the Steam Play tool")
             let nsr = source.appendingPathComponent("framework/tools/nsr.py").path
             _ = try? runTool("/usr/bin/python3", [nsr, "install"], quiet: true)
