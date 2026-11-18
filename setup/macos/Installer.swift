@@ -277,7 +277,7 @@ final class ComponentsPage: WizardPage {
     let shortcut = HoverButton(checkboxWithTitle: "Desktop Shortcut", target: nil, action: nil)
     let steam = HoverButton(checkboxWithTitle: "Add to Steam Library", target: nil, action: nil)
     let saves = HoverButton(checkboxWithTitle: "Import Windows Saves", target: nil, action: nil)
-    let steamPlay = HoverButton(checkboxWithTitle: "Steam Play: NightSight Recomp (needs NotProton)", target: nil, action: nil)
+    let steamPlay = HoverButton(checkboxWithTitle: "Steam Play: NSR (needs NotProton)", target: nil, action: nil)
     let desc = label("Position your mouse over a component to see its description.", size: 11)
 
     init(state: InstallState) {
