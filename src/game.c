@@ -31,4 +31,8 @@ const RtGame rt_game = {
     .cloud_prefix = "doomrecomp/",
     .computer_name = "DOOM-MAC",
     .pick_folder_msg = "Choose your DOOM (2016) game folder: the one that contains DOOMx64vk.exe.",
+    // Offline (GOG, or no Steam client): no "Loading title storage" wait while the game retries its online
+    // sign-in, which can't succeed without Steam, and no telemetry or other web requests.
+    .steam_offline_logged_off = 1,
+    .offline_no_http = 1,
 };
