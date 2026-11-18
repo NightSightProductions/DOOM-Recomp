@@ -54,8 +54,29 @@ static void *game_thread(void *arg) {
 }
 
 
+
+// Resident+swapped (dirty) memory by VM tag, largest first: what is growing.
+static void vm_tag_summary(char *out, size_t n) {
+    static uint64_t bytes[256]; memset(bytes, 0, sizeof bytes);
+    vm_address_t a = 0; natural_t depth = 0;
+    for (;;) {
+        vm_size_t sz = 0; vm_region_submap_info_data_64_t info; mach_msg_type_number_t c = VM_REGION_SUBMAP_INFO_COUNT_64;
+        if (vm_region_recurse_64(mach_task_self(), &a, &sz, &depth, (vm_region_recurse_info_t)&info, &c) != KERN_SUCCESS) break;
+        if (info.is_submap) { depth++; continue; }
+        bytes[info.user_tag & 255] += (uint64_t)(info.pages_dirtied + info.pages_swapped_out) * vm_page_size;
+        a += sz;
+    }
+    int o = snprintf(out, n, "[vmtags]");
+    for (int k = 0; k < 5; k++) {
+        int best = -1; for (int t = 0; t < 256; t++) if (bytes[t] > (best < 0 ? 64u << 20 : bytes[best])) best = t;
+        if (best < 0) break;
+        o += snprintf(out + o, n - (size_t)o, " tag%d=%.0fMB", best, bytes[best] / 1048576.0); bytes[best] = 0;
+    }
+}
+
 // Performance log (every 5 s into the log, with RT_FPS): CPU use per thread, to see what limits the frame rate.
 #include <mach/mach.h>
+#include <os/proc.h>
 static void *perf_thread(void *arg) {
     pthread_setname_np("perf monitor");
     for (;;) {
@@ -74,11 +95,15 @@ static void *perf_thread(void *arg) {
         }
         for (mach_msg_type_number_t i = 0; i < n; i++) mach_port_deallocate(mach_task_self(), th[i]);
         vm_deallocate(mach_task_self(), (vm_address_t)th, n * sizeof *th);
+        { task_vm_info_data_t vi; mach_msg_type_number_t vc = TASK_VM_INFO_COUNT;
+          if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vi, &vc) == KERN_SUCCESS)
+              o += snprintf(line + o, sizeof line - (size_t)o, " | footprint=%.0fMB avail=%.0fMB", vi.phys_footprint / 1048576.0, os_proc_available_memory() / 1048576.0); }
         NSProcessInfo *pi = NSProcessInfo.processInfo;
         o += snprintf(line + o, sizeof line - (size_t)o, " | lowPower=%d thermal=%ld", pi.lowPowerModeEnabled, (long)pi.thermalState);
         { extern double cocoa_dl_interval_ms; extern int cocoa_dl_count;
           if (cocoa_dl_count) { o += snprintf(line + o, sizeof line - (size_t)o, " displayLink=%.2fms", cocoa_dl_interval_ms / cocoa_dl_count); cocoa_dl_interval_ms = 0; cocoa_dl_count = 0; } }
         rt_log("%s\n", line);
+        { static int tick; if (++tick % 6 == 0) { char vl[400]; vm_tag_summary(vl, sizeof vl); rt_log("%s\n", vl); } }
     }
     return NULL;
 }
@@ -135,6 +160,7 @@ static int is_game_dir(const char *d) {
     app.idleTimerDisabled = YES;
     // Skip the online login (Bethesda/PlayFab): its failures cost ~30 s at startup. DOOM_ONLINE_LOGIN=1 turns it back on.
     setenv("RT_FPS", "1", 0);
+    setenv("MESA_LOG", "file", 0); setenv("MESA_LOG_LEVEL", "info", 0); setenv("MESA_LOG_PREFIX", "tag,level", 0);   // driver errors (e.g. why the device was lost) into the log
     if (!getenv("DOOM_ONLINE_LOGIN")) setenv("RT_NO_HTTP", "1", 0);
 
     AVAudioSession *as = AVAudioSession.sharedInstance;

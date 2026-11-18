@@ -25,3 +25,4 @@
 /ios/app/*.xcodeproj/
 .DS_Store
 __pycache__/
+/ios/app/Assets.xcassets/

@@ -17,11 +17,15 @@ targets:
         includes: [cocoa_ios.m, boot_ios.m, display_ios.c, vk_ios.c]
       # the framework runtime, unmodified, except rt.c (patched copy built by ios/Makefile)
       - path: ../../framework/runtime
-        includes: [teb.c, kernel32.c, handles.c, files.c, vulkan.c, window.c, bcrypt.c, input.c, xaudio2.c, pdh.c,
+        includes: [teb.c, handles.c, files.c, vulkan.c, window.c, bcrypt.c, input.c, xaudio2.c, pdh.c,
                    system.c, dinput.c, sockets.c, wasapi.c, fiber.c, user32.c, native.c, spvfix.c, xreverb.c,
                    winhttp.m, gamepad.m, gpucapture.m]
+      # DOOM artwork: not committed (copyrighted); put your own AppIcon.appiconset in ios/app/Assets.xcassets
+      - path: Assets.xcassets
+        optional: true
       - path: ../build/rt.c
       - path: ../build/steam.c
+      - path: ../build/kernel32.c
       - path: ../../src
         includes: [game.c, native_idtech.c]
     settings:
@@ -34,6 +38,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: Info.plist
         CLANG_ENABLE_OBJC_ARC: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GCC_OPTIMIZATION_LEVEL: "1"
         GCC_WARN_INHIBIT_ALL_WARNINGS: YES
         GCC_PREPROCESSOR_DEFINITIONS: "kAudioUnitSubType_DefaultOutput=kAudioUnitSubType_RemoteIO"

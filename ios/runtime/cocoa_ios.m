@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include "cocoa.h"
 void rt_log(const char *fmt, ...);
+void rt_ios_gpu_pause(int paused);   // vk_ios.c
 
 enum {
     WM_MOVE = 3, WM_SIZE = 5, WM_ACTIVATE = 6, WM_SETFOCUS = 7, WM_KILLFOCUS = 8, WM_CLOSE = 0x10, WM_ACTIVATEAPP = 0x1C,
@@ -139,6 +140,7 @@ static void mouse_motion(uint64_t hwnd, int dx, int dy, int x, int y) {
 // ---------------- root view controller ----------------
 static void relayout_all(void);
 static void overlay_front(void);
+static void release_latched(void);
 @interface RTRootViewController : UIViewController @end
 @implementation RTRootViewController
 - (void)loadView { UIView *v = [UIView new]; v.backgroundColor = UIColor.blackColor; self.view = v; }
@@ -249,7 +251,7 @@ void cocoa_set_cursor_pos(int x, int y) { atomic_store(&g_cx, x); atomic_store(&
 void cocoa_cursor_visible(int v) {
     atomic_store(&g_pointer_locked, !v);
     rt_log("[cocoa] mouse capture %s\n", v ? "off" : "on");
-    dispatch_async(dispatch_get_main_queue(), ^{ [g_root setNeedsUpdateOfPrefersPointerLocked]; g_controls.hidden = v; });
+    dispatch_async(dispatch_get_main_queue(), ^{ [g_root setNeedsUpdateOfPrefersPointerLocked]; g_controls.hidden = v; if (v) release_latched(); });
 }
 void cocoa_mouse_delta(int *dx, int *dy) { *dx = atomic_exchange(&g_dx, 0); *dy = atomic_exchange(&g_dy, 0); }
 
@@ -401,7 +403,7 @@ static void build_overlay(void) {
 
 
 // ---------------- touch controls (gameplay) ----------------
-// Left: a stick that holds W/A/S/D. Right: fire, zoom, jump, use, melee, grenade, quick-switch, weapon wheel.
+// Left: a stick that holds W/A/S/D. Right: fire, alt fire, jump, use, melee, chainsaw (G), use equipment (mouse 3), next equipment (F1), quick-switch, weapon wheel.
 // Shown while the game has captured the mouse (cocoa_cursor_visible(0)), i.e. in gameplay.
 @interface RTStick : UIView
 @property(strong) UIView *knob; @property(weak) UITouch *tracking; @property int dirs;   // bit0 W, 1 A, 2 S, 3 D
@@ -444,7 +446,7 @@ static void build_overlay(void) {
 @end
 
 typedef enum { ACT_KEY, ACT_MOUSE, ACT_WHEEL, ACT_CUSTOM } ActKind;
-@interface RTActionButton : UIButton @property ActKind kind; @property int code, arg; @property(copy) void (^tap)(RTActionButton *); @end
+@interface RTActionButton : UIButton @property ActKind kind; @property int code, arg; @property(copy) void (^tap)(RTActionButton *); @property BOOL armed; @property double downAt; @end
 @implementation RTActionButton
 - (void)fire:(int)down {
     uint64_t hwnd = atomic_load(&g_key_hwnd);
@@ -456,12 +458,50 @@ typedef enum { ACT_KEY, ACT_MOUSE, ACT_WHEEL, ACT_CUSTOM } ActKind;
     }
     self.alpha = down ? 1.0 : 0.75;
 }
-- (void)pressed { if (self.kind != ACT_CUSTOM) [self fire:1]; }
-- (void)released { if (self.kind == ACT_CUSTOM) { if (self.tap) self.tap(self); } else [self fire:0]; }
-// Hold FIRE and drag the same finger to keep aiming while firing.
+// ALT FIRE (right mouse button, the secondary fire) is held while the primary fire is pressed, which two thumbs can't do
+// alongside the stick and look. Press and hold it: the right button is down while you hold. Once it has been held for
+// 0.5 s the button lights up (armed); letting go then fires the primary button, then releases the right button. Let go
+// before 0.5 s and it only releases (a plain hold, e.g. zoom).
+- (BOOL)isSecondary { return self.kind == ACT_MOUSE && self.code == 2; }
+- (void)setArmed:(BOOL)on {
+    _armed = on;
+    self.backgroundColor = [UIColor colorWithWhite:1 alpha:on ? 0.55 : 0.22];
+    self.layer.borderColor = (on ? UIColor.systemOrangeColor : [UIColor colorWithWhite:1 alpha:0.45]).CGColor;
+}
+- (void)pressed {
+    if (self.kind == ACT_CUSTOM) return;
+    [self fire:1];
+    if ([self isSecondary]) {
+        self.downAt = CACurrentMediaTime();
+        double t0 = self.downAt;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            if (self.downAt == t0 && self.state & UIControlStateHighlighted) self.armed = YES;   // still the same press
+        });
+    }
+}
+- (void)released {
+    if (self.kind == ACT_CUSTOM) { if (self.tap) self.tap(self); return; }
+    if ([self isSecondary]) {
+        BOOL fireNow = self.armed;
+        self.downAt = 0; self.armed = NO;
+        if (fireNow) {   // held long enough: primary fire while the secondary is still down, then let both go
+            uint64_t hwnd = atomic_load(&g_key_hwnd);
+            mouse_button(hwnd, 1, 1);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                mouse_button(hwnd, 1, 0);
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ mouse_button(hwnd, 2, 0); });
+            });
+            self.alpha = 0.75;
+            return;
+        }
+    }
+    [self fire:0];
+}
+// Hold FIRE or ALT FIRE and drag the same finger to keep aiming while it is held.
 - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
     [super touchesMoved:ts withEvent:e];
-    if (!(self.kind == ACT_MOUSE && self.code == 1)) return;
+    // FIRE and ALT FIRE: dragging the held finger aims. SWAP (Q): holding opens the weapon wheel and dragging picks a weapon.
+    if (!(self.kind == ACT_MOUSE || (self.kind == ACT_KEY && self.code == 12))) return;
     UITouch *t = ts.anyObject;
     CGPoint p = [t locationInView:g_root.view], q = [t previousLocationInView:g_root.view];
     uint64_t hwnd = atomic_load(&g_key_hwnd);
@@ -520,6 +560,9 @@ static RTActionButton *action(NSString *title, ActKind kind, int code, int arg, 
     }
 }
 @end
+static void release_latched(void) {   // main thread: leaving gameplay lets go of a held ALT FIRE
+    for (RTActionButton *b in ((RTControlsView *)g_controls).buttons) if (b.armed || b.downAt) { b.armed = NO; b.downAt = 0; mouse_button(atomic_load(&g_key_hwnd), 2, 0); }
+}
 static void build_controls(void) {
     RTControlsView *v = [RTControlsView new];
     v.translatesAutoresizingMaskIntoConstraints = NO; v.hidden = YES;
@@ -528,13 +571,14 @@ static void build_controls(void) {
     [v addSubview:v.stick];
     struct { const char *t; ActKind k; int code, arg; CGFloat size, x, y; } defs[] = {
         {"FIRE", ACT_MOUSE, 1, 0, 104, 95, 95},
-        {"ZOOM", ACT_MOUSE, 2, 0, 66, 60, 215},
+        {"ALT\nFIRE", ACT_MOUSE, 2, 0, 66, 60, 215},
         {"JUMP", ACT_KEY, 49, 0, 74, 205, 62},
-        {"SPRINT", ACT_KEY, 56, 0, 66, 300, 62},
+        {"USE\nEQUIP", ACT_MOUSE, 4, 0, 66, 300, 62},
         {"USE", ACT_KEY, 14, 0, 58, 175, 150},
         {"MELEE", ACT_KEY, 3, 0, 58, 245, 150},
-        {"GRENADE", ACT_KEY, 5, 0, 58, 315, 150},
-        {"SWAP", ACT_KEY, 12, 0, 58, 385, 62},
+        {"CHAIN\nSAW", ACT_KEY, 5, 0, 58, 315, 150},
+        {"SWAP\nWHEEL", ACT_KEY, 12, 0, 58, 385, 62},
+        {"NEXT\nEQUIP", ACT_KEY, 122, 0, 58, 385, 150},
         {"WPN \u25B2", ACT_WHEEL, 0, 120, 52, 45, 305},
         {"WPN \u25BC", ACT_WHEEL, 0, -120, 52, 45, 365},
         {"SENS\n1.0x", ACT_CUSTOM, 0, 0, 52, 45, 425},
@@ -646,7 +690,7 @@ void cocoa_ios_start(void) {
     [nc addObserverForName:GCKeyboardDidConnectNotification object:nil queue:nil usingBlock:^(NSNotification *n) { attach_keyboard(n.object); }];
     for (GCMouse *m in GCMouse.mice) attach_mouse(m);
     [nc addObserverForName:GCMouseDidConnectNotification object:nil queue:nil usingBlock:^(NSNotification *n) { attach_mouse(n.object); }];
-    [nc addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { win_from_cocoa(0, WM_ACTIVATEAPP, 1, 0); }];
-    [nc addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { win_from_cocoa(0, WM_ACTIVATEAPP, 0, 0); }];
+    [nc addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { rt_ios_gpu_pause(0); win_from_cocoa(0, WM_ACTIVATEAPP, 1, 0); }];
+    [nc addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { rt_ios_gpu_pause(1); win_from_cocoa(0, WM_ACTIVATEAPP, 0, 0); }];
     gamepad_start();
 }

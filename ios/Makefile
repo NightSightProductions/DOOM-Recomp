@@ -22,7 +22,7 @@ $(eval $(call LIB,game,gen,))
 $(eval $(call LIB,superscriptx64,gen_superscript_ios,))
 $(eval $(call LIB,bink2w64,gen_bink_ios,-DRT_TSO=0))
 
-libs: $(OUT)/libgame.a $(OUT)/libsuperscriptx64.a $(OUT)/libbink2w64.a $(OUT)/rt.c $(OUT)/steam.c
+libs: $(OUT)/libgame.a $(OUT)/libsuperscriptx64.a $(OUT)/libbink2w64.a $(OUT)/rt.c $(OUT)/steam.c $(OUT)/kernel32.c
 # framework/runtime/rt.c with the iOS guest-strip patch applied (the framework submodule stays pristine)
 $(OUT)/rt.c: $(FW)/runtime/rt.c ios/patches/framework/0001-ios-claim-guest-strip.patch
 	@mkdir -p $(OUT)
@@ -33,6 +33,11 @@ $(OUT)/rt.c: $(FW)/runtime/rt.c ios/patches/framework/0001-ios-claim-guest-strip
 $(OUT)/steam.c: $(FW)/runtime/steam.c
 	@mkdir -p $(OUT)
 	sed 's|^\#define OFFLINE_DELAY_MS 10000.*|static int offline_delay_ms(void) { const char *e = getenv("DOOM_ONLINE_LOGIN"); return e \&\& *e == 0x31 ? 10000 : 300; }\n\#define OFFLINE_DELAY_MS offline_delay_ms()|' $< > $@
+# kernel32.c reporting an 8 GB machine: the framework claims 16 GB, so the game sizes its caches for it and grows past the
+# ~6 GB an iPhone app may use (footprint climbed to 5.9 GB and the game then crashed on a failed allocation).
+$(OUT)/kernel32.c: $(FW)/runtime/kernel32.c
+	@mkdir -p $(OUT)
+	sed -e 's|total = 16ull << 30, avail = 12ull << 30|total = 8ull << 30, avail = 5ull << 30|' -e 's|wr64(b + 8, 16ull << 30); wr64(b + 16, 12ull << 30); wr64(b + 24, 32ull << 30); wr64(b + 32, 24ull << 30)|wr64(b + 8, 8ull << 30); wr64(b + 16, 5ull << 30); wr64(b + 24, 16ull << 30); wr64(b + 32, 10ull << 30)|' $< > $@
 ios/runtime/display_ios.c: $(FW)/runtime/display.c ios/scripts/gen_display_ios.py
 	python3 ios/scripts/gen_display_ios.py .
 .PHONY: libs
