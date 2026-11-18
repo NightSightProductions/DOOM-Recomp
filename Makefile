@@ -22,13 +22,15 @@ include $(FW)/recomp.mk
 # x86 ordering (see the framework README, "Memory ordering")
 GEN_CFLAGS += -DRT_RELAX_FP
 
+# Both DLLs prefer 0x180000000, where arm64 macOS maps its shared cache, so they are translated rebased into the
+# framework's DLL range (0x160000000-0x164000000).
 # superscriptx64.dll (the script VM); orig_superscript.dll links to the game's copy, like orig.exe
 SUPERSCRIPT_DLL ?= orig_superscript.dll
-$(eval $(call MODULE_RULES,superscriptx64,$(SUPERSCRIPT_DLL),gen_superscript,,))
-# RAD Bink 2 (bink2w64.dll): same preferred base as superscriptx64, so it is translated rebased to 0x182000000.
+$(eval $(call MODULE_RULES,superscriptx64,$(SUPERSCRIPT_DLL),gen_superscript,--rebase 160000000,))
+# RAD Bink 2 (bink2w64.dll): rebased to 0x162000000, after superscriptx64.
 # It only synchronizes through kernel objects, so it needs no TSO ordering.
 BINK_DLL ?= orig_bink.dll
-$(eval $(call MODULE_RULES,bink2w64,$(BINK_DLL),gen_bink,--rebase 182000000 --no-abi-trim,-DRT_TSO=0))
+$(eval $(call MODULE_RULES,bink2w64,$(BINK_DLL),gen_bink,--rebase 162000000 --no-abi-trim,-DRT_TSO=0))
 
 gen-dll: gen-superscriptx64
 gen-bink: gen-bink2w64
