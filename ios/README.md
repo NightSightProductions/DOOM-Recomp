@@ -36,7 +36,8 @@ DLL bases for the iOS build (inside the strip, after the exe image ending at 0x1
 - KosmicKrisp runs on device (see ios-kk-ci/).
 
 ## KosmicKrisp for iOS
-`scripts/build-kosmickrisp-ios.sh` (edit the S/R paths at the top) fetches nothing: point it at a Mesa checkout of
-`ios-kk-ci/out/MESA_COMMIT` (+ the framework's patches/mesa), it applies the iOS fixups and builds host tools + the iOS dylib.
-`patches/mesa/0001-wsi-metal-extra-drawable.patch` is what takes the game from 30 to 60 fps: iOS cannot disable
-CAMetalLayer display sync, so the layer needs one more drawable than the Vulkan swapchain has images (DOOM insists on 2).
+`scripts/build-kosmickrisp-ios.sh` fetches Mesa at `MESA_COMMIT`, applies the framework's patches and
+`patches/mesa/0001-kosmickrisp-ios.patch`, and builds `build/libvulkan_kosmickrisp.dylib` (the Xcode target embeds it).
+The patch has the iOS compile fixes (`mach_vm_*` shims in kk_bo.c, no `displaySyncEnabled` on iOS) and the change that takes
+the game from 30 to 60 fps: iOS cannot disable CAMetalLayer display sync, so the layer needs one more drawable than the
+Vulkan swapchain has images (DOOM insists on 2).

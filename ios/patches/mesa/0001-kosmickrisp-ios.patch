@@ -1,0 +1,79 @@
+diff --git a/src/kosmickrisp/vulkan/kk_bo.c b/src/kosmickrisp/vulkan/kk_bo.c
+index 5562b61..756b065 100644
+--- a/src/kosmickrisp/vulkan/kk_bo.c
++++ b/src/kosmickrisp/vulkan/kk_bo.c
+@@ -15,7 +15,46 @@
+ 
+ #if DETECT_OS_APPLE
+ #include <mach/mach_init.h>
++#include <TargetConditionals.h>
++#if TARGET_OS_IPHONE
++/* <mach/mach_vm.h> is unsupported on iOS; vm_address_t is 64-bit on arm64, so
++ * the vm_* equivalents behave the same. */
++#include <mach/vm_map.h>
++
++static inline kern_return_t
++mach_vm_remap(vm_map_t target, uint64_t *dst, uint64_t size, uint64_t mask,
++              int flags, vm_map_t src_task, uint64_t src, boolean_t copy,
++              vm_prot_t *cur_prot, vm_prot_t *max_prot, vm_inherit_t inherit)
++{
++   vm_address_t d = (vm_address_t)*dst;
++   kern_return_t r = vm_remap(target, &d, size, mask, flags, src_task,
++                              (vm_address_t)src, copy, cur_prot, max_prot,
++                              inherit);
++   *dst = d;
++   return r;
++}
++
++static inline kern_return_t
++mach_vm_map(vm_map_t target, uint64_t *addr, uint64_t size, uint64_t mask,
++            int flags, mem_entry_name_port_t object, uint64_t offset,
++            boolean_t copy, vm_prot_t cur_prot, vm_prot_t max_prot,
++            vm_inherit_t inherit)
++{
++   vm_address_t a = (vm_address_t)*addr;
++   kern_return_t r = vm_map(target, &a, size, mask, flags, object, offset, copy,
++                            cur_prot, max_prot, inherit);
++   *addr = a;
++   return r;
++}
++
++static inline kern_return_t
++mach_vm_deallocate(vm_map_t target, uint64_t addr, uint64_t size)
++{
++   return vm_deallocate(target, (vm_address_t)addr, size);
++}
++#else
+ #include <mach/mach_vm.h>
++#endif /* TARGET_OS_IPHONE */
+ #endif /* DETECT_OS_APPLE */
+ 
+ VkResult
+diff --git a/src/vulkan/wsi/wsi_common_metal_layer.m b/src/vulkan/wsi/wsi_common_metal_layer.m
+index 8192497..55842e9 100644
+--- a/src/vulkan/wsi/wsi_common_metal_layer.m
++++ b/src/vulkan/wsi/wsi_common_metal_layer.m
+@@ -142,7 +142,9 @@
+ wsi_metal_layer_set_immediate(const CAMetalLayer *metal_layer,
+                               bool enable_immediate)
+ {
++#if !__is_target_os(ios)
+    metal_layer.displaySyncEnabled = !enable_immediate;
++#endif
+ }
+ 
+ VkResult
+@@ -170,10 +172,12 @@
+       metal_layer.allowsNextDrawableTimeout = YES;
+       metal_layer.framebufferOnly = framebuffer_only;
+ 
+-      metal_layer.maximumDrawableCount = image_count;
++      metal_layer.maximumDrawableCount = image_count < 3 ? image_count + 1 : image_count;
+       metal_layer.drawableSize = (CGSize){.width = width, .height = height};
+       metal_layer.opaque = enable_opaque;
++#if !__is_target_os(ios)
+       metal_layer.displaySyncEnabled = !enable_immediate;
++#endif
+       metal_layer.pixelFormat = metal_format;
+ 
+       metal_layer.colorspace = cg_color_space;

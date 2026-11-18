@@ -1,8 +1,0 @@
---- a/src/vulkan/wsi/wsi_common_metal_layer.m
-+++ b/src/vulkan/wsi/wsi_common_metal_layer.m
-@@ -170 +170,4 @@
--      metal_layer.maximumDrawableCount = image_count;
-+      /* iOS cannot turn displaySync off, so a drawable stays busy for a whole refresh. With one drawable per
-+       * swapchain image, a game that needs two images (DOOM) can never render ahead: 60 -> 30 fps. One extra
-+       * drawable (3 is the maximum) restores triple buffering; the Vulkan side still sees image_count images. */
-+      metal_layer.maximumDrawableCount = image_count < 3 ? image_count + 1 : image_count;

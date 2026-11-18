@@ -18,7 +18,7 @@ targets:
       # the framework runtime, unmodified, except rt.c (patched copy built by ios/Makefile)
       - path: ../../framework/runtime
         includes: [teb.c, kernel32.c, handles.c, files.c, vulkan.c, window.c, bcrypt.c, input.c, xaudio2.c, pdh.c,
-                   system.c, dinput.c, sockets.c, wasapi.c, fiber.c, user32.c, native.c, spvfix.c,
+                   system.c, dinput.c, sockets.c, wasapi.c, fiber.c, user32.c, native.c, spvfix.c, xreverb.c,
                    winhttp.m, gamepad.m, gpucapture.m]
       - path: ../build/rt.c
       - path: ../build/steam.c
@@ -43,7 +43,7 @@ targets:
         OTHER_LDFLAGS: "-lgame -Wl,-force_load,$(SRCROOT)/../build/libsuperscriptx64.a -Wl,-force_load,$(SRCROOT)/../build/libbink2w64.a -Wl,-export_dynamic -framework Metal -framework QuartzCore -framework AudioToolbox -framework CoreAudio -framework AVFAudio -framework GameController -framework CoreHaptics -framework CoreMotion -framework CoreGraphics -framework CoreFoundation"
     # The Vulkan driver is dlopen'd at run time (vk_ios.c): embedded and signed, not linked.
     dependencies:
-      - framework: ../../ios-kk-ci/out/libvulkan_kosmickrisp.dylib
+      - framework: ../build/libvulkan_kosmickrisp.dylib
         link: false
         embed: true
         codeSign: true
