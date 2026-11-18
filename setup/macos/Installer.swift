@@ -27,7 +27,7 @@ final class InstallState {
     var desktopShortcut = true
     var steamShortcut = true
     var importSaves = true
-    var steamPlay = false   // Steam Play tool (needs NotProton); opt-in
+    var steamPlay = false   // NightSight Recomp, the Steam Play tool (needs NotProton); opt-in
     var gameApp: URL?   // the game folder (contains DOOMx64vk.exe)
 
     let resources = Bundle.main.resourceURL!
@@ -277,7 +277,7 @@ final class ComponentsPage: WizardPage {
     let shortcut = HoverButton(checkboxWithTitle: "Desktop Shortcut", target: nil, action: nil)
     let steam = HoverButton(checkboxWithTitle: "Add to Steam Library", target: nil, action: nil)
     let saves = HoverButton(checkboxWithTitle: "Import Windows Saves", target: nil, action: nil)
-    let steamPlay = HoverButton(checkboxWithTitle: "Steam Play Tool (needs NotProton)", target: nil, action: nil)
+    let steamPlay = HoverButton(checkboxWithTitle: "Steam Play: NightSight Recomp (needs NotProton)", target: nil, action: nil)
     let desc = label("Position your mouse over a component to see its description.", size: 11)
 
     init(state: InstallState) {
@@ -302,7 +302,7 @@ final class ComponentsPage: WizardPage {
         steamPlay.state = state.steamPlay ? .on : .off
         steamPlay.target = self
         steamPlay.action = #selector(changed)
-        steamPlay.onHover = { [weak self] in self?.desc.stringValue = "For NotProton users: Steam's own DOOM entry can start this port. Restart Steam, then choose it under DOOM > Properties > Compatibility." }
+        steamPlay.onHover = { [weak self] in self?.desc.stringValue = "For NotProton users: Steam's own DOOM entry starts this port. Restart Steam, then choose NightSight Recomp (NSR) under DOOM > Properties > Compatibility, and leave its launch options empty." }
 
         let list = NSStackView(views: [game, shortcut, steam, saves, steamPlay])
         list.orientation = .vertical
@@ -586,8 +586,12 @@ final class Installation {
         }
 
         if state.steamPlay {
-            log("Registering the Steam Play tool")
-            _ = try? runTool("/usr/bin/python3", steamPlayToolArgs(source) + ["--app", app.path], quiet: true)
+            log("Registering with NightSight Recomp, the Steam Play tool")
+            let nsr = source.appendingPathComponent("framework/tools/nsr.py").path
+            _ = try? runTool("/usr/bin/python3", [nsr, "install"], quiet: true)
+            _ = try? runTool("/usr/bin/python3", [nsr, "add"] + nsrGameArgs + ["--app", app.path], quiet: true)
+            // the per-game tool earlier versions registered: NSR replaces it
+            try? fm.removeItem(at: legacySteamPlayTool)
         }
 
         // The translated code is only needed while building.
@@ -598,14 +602,16 @@ final class Installation {
     }
 }
 
-// The Steam Play compatibility tool (framework/tools/steam_play_tool.py): Steam's DOOM entry starts this port
-// when the user picks the tool, which needs NotProton to switch on Steam for Mac's compatibility tools.
-func steamPlayToolArgs(_ source: URL) -> [String] {
-    [source.appendingPathComponent("framework/tools/steam_play_tool.py").path, "--id", "doom_recomp",
-     "--display", "DOOM Recomp (native Apple Silicon)", "--exe", "doomx64*.exe", "--force-exe", "DOOMx64vk.exe"]
-}
+// NightSight Recomp (framework/tools/nsr.py), the Steam Play tool all NightSightProductions ports share: Steam's DOOM
+// entry starts this port when the user picks it, which needs NotProton to switch on Steam for Mac's compatibility tools.
+let steamAppID = "379720"
+let nsrGameArgs = ["--appid", steamAppID, "--pass-paths", "--exe", "doomx64*.exe", "--force-exe", "DOOMx64vk.exe", "--name", "DOOM"]
+// the per-game tool earlier versions of this installer registered
+let legacySteamPlayTool = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/Steam/compatibilitytools.d/doom_recomp")
 
-// Removes the app, the desktop shortcut, the Steam Play tool and the build cache. Saved games and settings
+// Removes the app, the desktop shortcut, DOOM's NightSight Recomp entry (the tool itself stays: other games may use
+// it), an older per-game Steam Play tool and the build cache. Saved games and settings
 // (~/Library/Application Support/doom-recomp) are kept.
 func uninstall(window: NSWindow) {
     let fm = FileManager.default
@@ -634,7 +640,10 @@ func uninstall(window: NSWindow) {
             }
         }
         try? fm.removeItem(at: fm.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/\(gameAppName)"))
-        try? fm.removeItem(at: fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Steam/compatibilitytools.d/doom_recomp"))
+        if let nsr = Bundle.main.resourceURL?.appendingPathComponent("source/framework/tools/nsr.py").path {
+            _ = try? runTool("/usr/bin/python3", [nsr, "remove", "--appid", steamAppID], quiet: true)
+        }
+        try? fm.removeItem(at: legacySteamPlayTool)
         try? fm.removeItem(at: InstallState.workDir)
         let done = NSAlert()
         done.messageText = "\(gameTitle) was successfully removed from your computer."

@@ -3,6 +3,7 @@
 #   make -j8 boot               build the runtime + translated game
 #   make app                    build/DOOM.app
 #   make kosmickrisp            build the Vulkan driver from Mesa (with the framework's patches)
+#   make steam-play             register the app with NightSight Recomp (NSR), the Steam Play tool (needs NotProton)
 FW        = framework
 PYTHON    = .venv/bin/python
 BUILD     = build
@@ -32,3 +33,11 @@ $(eval $(call MODULE_RULES,bink2w64,$(BINK_DLL),gen_bink,--rebase 182000000 --no
 gen-dll: gen-superscriptx64
 gen-bink: gen-bink2w64
 .PHONY: gen-dll gen-bink
+
+# Steam Play: Play on DOOM's own Steam entry starts the app (framework/tools/nsr.py, NightSight Recomp)
+APP_PATH ?= $(CURDIR)/$(BUILD)/$(APP_NAME).app
+steam-play:
+	python3 $(FW)/tools/nsr.py install
+	python3 $(FW)/tools/nsr.py add --appid 379720 --app "$(APP_PATH)" --pass-paths --exe 'doomx64*.exe' \
+	    --force-exe DOOMx64vk.exe --name DOOM
+.PHONY: steam-play
