@@ -1,5 +1,7 @@
 # iOS port notes
 
+**Want to build it?** See [BUILDING.md](BUILDING.md) (manual steps) or [AGENT_BUILD.md](AGENT_BUILD.md) (for an AI coding agent).
+
 Status: boots on device through vkCreateDevice and swapchain creation; needs the game data copied to Documents/DOOM.
 
 ## Layout
