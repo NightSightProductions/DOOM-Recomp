@@ -20,5 +20,8 @@
 !/tools/native.txt
 !/tools/patches.txt
 !/tests/
+!/ios/
+/ios/build/
+/ios/app/*.xcodeproj/
 .DS_Store
 __pycache__/

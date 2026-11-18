@@ -1,0 +1,98 @@
+diff --git a/runtime/rt.c b/runtime/rt.c
+index 1b6d105..902ed7b 100644
+--- a/runtime/rt.c
++++ b/runtime/rt.c
+@@ -12,7 +12,8 @@
+ #include <dlfcn.h>
+ #include <sys/ucontext.h>
+ #include <mach/mach.h>
+-#include <mach/mach_vm.h>
++#include <mach/vm_map.h>
++#include <TargetConditionals.h>
+ #include <crt_externs.h>
+ #include <unistd.h>
+ 
+@@ -211,15 +212,34 @@ static int guest_reserved;
+ // The guest image range is part of the executable: a zero-fill segment that the Makefile links at
+ // 0x140000000 (-segaddr __GUEST). dyld maps it before any allocator runs, so nothing else can land
+ // there. With ASLR on it slides elsewhere, and rt_reexec_fixed_layout() restarts without ASLR.
++//
++// iOS: an app can't re-exec itself (posix_spawn SETEXEC returns EPERM) and arm64 executables are always PIE, so a
++// linked segment slides. Instead the strip [gimage_base, +GUEST_SEGMENT_SIZE) is claimed with mmap from a very early
++// constructor, before main and before Swift/UIKit start. That wins most launches; when libmalloc's initial arena
++// already sits in the strip, rt_guest_range_busy() is called once the app can tell the user (relaunch).
++// The strip holds the exe image and the translated DLLs, which on iOS are rebased into it (the dyld shared cache
++// occupies 0x180000000-0x1f2000000 there).
+ #define GUEST_SEGMENT_SIZE 0x18000000
++#if !TARGET_OS_IPHONE
+ __asm__(".zerofill __GUEST,__image,_rt_guest_segment," "0x18000000" ",14");
+ extern char rt_guest_segment[];
++#endif
++int rt_guest_strip_claimed(void) { return guest_reserved; }
+ __attribute__((constructor(101))) static void reserve_guest_range(void) {
++#if !TARGET_OS_IPHONE
+     if ((uint64_t)(uintptr_t)rt_guest_segment == gimage_base && gimage_size <= GUEST_SEGMENT_SIZE) { guest_reserved = 1; return; }
++    size_t want_size = gimage_size;
++#else
++    size_t want_size = gimage_size > GUEST_SEGMENT_SIZE ? gimage_size : GUEST_SEGMENT_SIZE;
++#endif
+     void *want = (void *)(uintptr_t)gimage_base;
+-    void *p = mmap(want, gimage_size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
++    void *p = mmap(want, want_size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+     if (p == want) { guest_reserved = 1; return; }
+-    if (p != MAP_FAILED) munmap(p, gimage_size);
++    if (p != MAP_FAILED) munmap(p, want_size);
++}
++// a translated DLL rebased into the reserved strip (iOS), mapped over the reservation
++__attribute__((unused)) static int in_guest_strip(uint64_t base, uint64_t size) {
++    return guest_reserved && base >= gimage_base + gimage_size && base + size <= gimage_base + GUEST_SEGMENT_SIZE;
+ }
+ // The image must sit at its preferred base: translated code uses absolute addresses.
+ void rt_load_image(const char *path) {
+@@ -229,10 +249,10 @@ void rt_load_image(const char *path) {
+                              : mmap(want, gimage_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+     if (p != want) {
+         rt_log("[rt] guest image range 0x%llx is not free (got %p); mappings in the way:\n", (unsigned long long)gimage_base, p);
+-        mach_vm_address_t a = gimage_base; mach_vm_size_t sz; vm_region_basic_info_data_64_t info; mach_msg_type_number_t cnt; mach_port_t obj;
++        vm_address_t a = (vm_address_t)gimage_base; vm_size_t sz; vm_region_basic_info_data_64_t info; mach_msg_type_number_t cnt; mach_port_t obj;   // vm_region_64: mach_vm_* is unavailable on iOS
+         while (a < gimage_base + gimage_size) {
+             cnt = VM_REGION_BASIC_INFO_COUNT_64;
+-            if (mach_vm_region(mach_task_self(), &a, &sz, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &cnt, &obj) != KERN_SUCCESS) break;
++            if (vm_region_64(mach_task_self(), &a, &sz, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &cnt, &obj) != KERN_SUCCESS) break;
+             if (a >= gimage_base + gimage_size) break;
+             rt_log("    %llx-%llx prot %d\n", (unsigned long long)a, (unsigned long long)(a + sz), info.protection);
+             a += sz;
+@@ -259,8 +279,10 @@ void rt_load_image(const char *path) {
+ // DLL images live in a second zero-fill segment (-segaddr __GUESTDLL 0x180000000), the usual 64-bit DLL base.
+ #define DLL_SEGMENT_BASE 0x180000000ull
+ #define DLL_SEGMENT_SIZE 0x4000000ull
++#if !TARGET_OS_IPHONE   // (iOS: the DLLs are rebased into the strip claimed by reserve_guest_range)
+ __asm__(".zerofill __GUESTDLL,__images,_rt_dll_segment," "0x4000000" ",14");
+ extern char rt_dll_segment[];
++#endif
+ const GModule *rt_find_module(const char *base_name) {
+     for (int i = 0; i < nmodules; i++) if (!strcmp(modules[i]->name, base_name)) return modules[i];
+     return NULL;
+@@ -277,7 +299,11 @@ int rt_load_module(const GModule *m, const char *host_path) {
+     if (idx < 0) return 0;
+     if (module_loaded[idx]) return 1;
+     void *want = PTR(m->base);
++#if !TARGET_OS_IPHONE
+     int in_seg = (uint64_t)(uintptr_t)rt_dll_segment == DLL_SEGMENT_BASE && m->base >= DLL_SEGMENT_BASE && m->base + m->size <= DLL_SEGMENT_BASE + DLL_SEGMENT_SIZE;
++#else
++    int in_seg = in_guest_strip(m->base, m->size);
++#endif
+     void *p = mmap(want, m->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | (in_seg ? MAP_FIXED : 0), -1, 0);
+     if (p != want) { rt_log("[rt] cannot map %s at 0x%llx (got %p)\n", m->name, (unsigned long long)m->base, p); if (p != MAP_FAILED) munmap(p, m->size); return 0; }
+     FILE *f = fopen(host_path, "rb");
+@@ -423,6 +449,10 @@ void rt_init(void) {
+ #define _POSIX_SPAWN_DISABLE_ASLR 0x0100
+ #endif
+ void rt_reexec_fixed_layout(char **argv) {
++#if TARGET_OS_IPHONE
++    (void)argv;   // an iOS app can't re-exec itself (EPERM); the strip was claimed in reserve_guest_range()
++    return;
++#endif
+     const char *v = getenv("RT_FIXED_LAYOUT");
+     int tries = v ? atoi(v) : 0;
+     if (tries && (guest_reserved || tries >= 4)) return;
