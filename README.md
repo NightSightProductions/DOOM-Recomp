@@ -54,14 +54,21 @@ Some things worth knowing:
 
 Steam for Mac has the same compatibility-tool support as Steam on Linux, but it is switched off.
 [NotProton](https://github.com/NotProtonNot/NotProton) switches it on. With NotProton installed, the
-installer's **Steam Play Tool** option (off by default) registers DOOM Recomp as a compatibility tool.
-Restart Steam, then choose it under **DOOM > Properties > Compatibility > Force the use of a specific Steam
-Play compatibility tool**. Steam then installs the Windows release of DOOM in its Mac library, and Play on
-DOOM's own library entry starts DOOM Recomp, with the Steam overlay (Shift+Tab) and playtime as
-for any Steam game. CrossOver or Whisky isn't needed in that setup.
+installer's **Steam Play: NightSight Recomp** option (off by default) registers DOOM with **NightSight Recomp
+(NSR)**, the one Steam Play tool all NightSightProductions ports share. Restart Steam, then choose it under
+**DOOM > Properties > Compatibility > Force the use of a specific Steam Play compatibility tool > NightSight
+Recomp (NSR)**. Steam then installs the Windows release of DOOM in its Mac library, and Play on DOOM's own
+library entry starts DOOM Recomp, with the Steam overlay (Shift+Tab) and playtime as for any Steam game.
+NotProton plugins switched on for the game are loaded into it too. CrossOver or Whisky isn't needed in that setup.
 
-The tool lives in `~/Library/Application Support/Steam/compatibilitytools.d/doom_recomp`; the uninstaller
-removes it. Without NotProton it does nothing.
+Leave DOOM's Steam launch options empty: with a tool other than NotProton's own, Steam for Mac can't start a
+launch that has them ("OS Error 260"). Settings for the game go into NSR instead, for example
+`python3 framework/tools/nsr.py set-env --appid 379720 NAME=value`. From a source build, `make steam-play`
+registers `build/DOOM.app` (pass `APP_PATH=/Applications/DOOM.app` for an installed one).
+
+NSR lives in `~/Library/Application Support/Steam/compatibilitytools.d/nsr`, and each launch is logged to
+`~/Library/Logs/nsr.log`. The uninstaller removes DOOM's entry and keeps the tool for other games; it also removes
+the per-game `doom_recomp` tool earlier versions registered. Without NotProton the tool does nothing.
 
 ## How It Works
 
@@ -122,7 +129,7 @@ installer's prebuilt KosmicKrisp driver (Mesa, MIT) and Vulkan loader (Khronos, 
 
 ## Known Issues
 
-  - The Steam overlay only works when DOOM Recomp is started through the Steam Play tool (see above). Started
+  - The Steam overlay only works when DOOM Recomp is started through NightSight Recomp (see above). Started
     any other way, **Invite Friend** opens a simple friends list instead of the overlay.
   - Multiplayer matchmaking and SnapMap work, but some of id's regional multiplayer servers no longer respond.
   - On Macs without a fan (MacBook Air), the frame rate drops as the Mac heats up during long sessions.

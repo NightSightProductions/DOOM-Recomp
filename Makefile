@@ -3,6 +3,7 @@
 #   make -j8 boot               build the runtime + translated game
 #   make app                    build/DOOM.app
 #   make kosmickrisp            build the Vulkan driver from Mesa (with the framework's patches)
+#   make steam-play             register the app with NightSight Recomp (NSR), the Steam Play tool (needs NotProton)
 FW        = framework
 PYTHON    = .venv/bin/python
 BUILD     = build
@@ -52,14 +53,24 @@ $(BUILD)/edition.$(EDITION):
 	@mkdir -p $(BUILD); rm -f $(BUILD)/edition.*; touch $@
 $(BUILD)/game/src/game.o: $(BUILD)/edition.$(EDITION)
 
+# Both DLLs prefer 0x180000000, where arm64 macOS maps its shared cache, so they are translated rebased into the
+# framework's DLL range (0x160000000-0x164000000).
 # superscriptx64.dll (the script VM); orig_superscript.dll links to the game's copy, like orig.exe
 SUPERSCRIPT_DLL ?= orig_superscript.dll
-$(eval $(call MODULE_RULES,superscriptx64,$(SUPERSCRIPT_DLL),gen_superscript,,))
-# RAD Bink 2 (bink2w64.dll): same preferred base as superscriptx64, so it is translated rebased to 0x182000000.
+$(eval $(call MODULE_RULES,superscriptx64,$(SUPERSCRIPT_DLL),gen_superscript,--rebase 160000000,))
+# RAD Bink 2 (bink2w64.dll): rebased to 0x162000000, after superscriptx64.
 # It only synchronizes through kernel objects, so it needs no TSO ordering.
 BINK_DLL ?= orig_bink.dll
-$(eval $(call MODULE_RULES,bink2w64,$(BINK_DLL),gen_bink,--rebase 182000000 --no-abi-trim,-DRT_TSO=0))
+$(eval $(call MODULE_RULES,bink2w64,$(BINK_DLL),gen_bink,--rebase 162000000 --no-abi-trim,-DRT_TSO=0))
 
 gen-dll: gen-superscriptx64
 gen-bink: gen-bink2w64
 .PHONY: gen-dll gen-bink
+
+# Steam Play: Play on DOOM's own Steam entry starts the app (framework/tools/nsr.py, NightSight Recomp)
+APP_PATH ?= $(CURDIR)/$(BUILD)/$(APP_NAME).app
+steam-play:
+	python3 $(FW)/tools/nsr.py install
+	python3 $(FW)/tools/nsr.py add --appid 379720 --app "$(APP_PATH)" --pass-paths --exe 'doomx64*.exe' \
+	    --force-exe DOOMx64vk.exe --name DOOM
+.PHONY: steam-play
