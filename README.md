@@ -41,7 +41,8 @@ Some things worth knowing:
   - Online features (Steam sign-in, achievements and stats, Bethesda.net, the main menu's live
     tiles) work when the Steam for Mac client is running and logged in. DOOM Recomp uses the copy of
     Valve's `libsteam_api.dylib` that comes with the Steam client, so nothing else needs to be installed;
-    without Steam, the game runs offline.
+    without Steam, the game runs offline. Offline, it skips its online sign-in (no "Loading title
+    storage" wait) and makes no web requests, so no telemetry is sent.
   - The GOG release always runs offline: the campaign, saves and settings work as with Steam, but there
     are no achievements, cloud saves or online features (GOG Galaxy is not supported). The Steam Play
     tool below needs DOOM in your Steam library, so the installer skips it for a GOG copy.
