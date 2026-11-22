@@ -46,6 +46,7 @@ Some things worth knowing:
   - The GOG release always runs offline: the campaign, saves and settings work as with Steam, but there
     are no achievements, cloud saves or online features (GOG Galaxy is not supported). The Steam Play
     tool below needs DOOM in your Steam library, so the installer skips it for a GOG copy.
+  - The id Software and Bethesda logo videos at startup are skipped.
   - Use **Adaptive** vertical sync. **On** is classic double-buffered vsync, which drops to 30 FPS
     whenever a frame runs long, as it does on Windows.
   - The fullscreen resolutions in the game's Video settings are scaled to your screen; windowed
