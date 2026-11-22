@@ -13,7 +13,9 @@ static const char *const doom_args[] = {
     // Always Vulkan: the OpenGL renderer is the game's other executable (DOOMx64.exe), which is not part of
     // this port. A saved r_renderAPI "0" (from picking OpenGL in the Video menu) would otherwise make every
     // launch fail; command-line cvars are applied after the config file, so this wins.
-    "+r_renderAPI", "1", NULL,
+    "+r_renderAPI", "1",
+    // skip the id Software / Bethesda logo videos at startup
+    "+com_skipIntroVideo", "1", NULL,
 };
 
 const RtGame rt_game = {
