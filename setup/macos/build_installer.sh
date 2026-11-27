@@ -37,7 +37,10 @@ rm -rf "${STAGE}"
 mkdir -p "${INSTALLER}/Contents/MacOS" "${INSTALLER}/Contents/Resources/source"
 
 # Only tracked files: the repository never contains game code or data.
+# The framework's own submodules (third_party/dxvk, ffmpeg, ...) are for its win32 target and are listed as bare
+# folders when not checked out: DOOM doesn't build them, so they are left out.
 (cd "${ROOT}" && git ls-files --recurse-submodules | grep -v "^docs/" | while read -r f; do
+    [[ -d "$f" ]] && continue
     mkdir -p "${INSTALLER}/Contents/Resources/source/$(dirname "$f")"
     cp -p "$f" "${INSTALLER}/Contents/Resources/source/$f"
 done)
