@@ -1,6 +1,7 @@
 // DOOM (2016) settings for the game-agnostic runtime (see game.h).
 #include "game.h"
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef DOOM_EDITION_GOG
 // The GOG release (built with EDITION=gog): its steam_api64.dll is GOG's adapter to Galaxy, and the player
@@ -9,12 +10,27 @@
 __attribute__((constructor)) static void gog_steam_offline(void) { setenv("DOOM_STEAM_OFFLINE", "1", 0); }
 #endif
 
-static const char *const doom_args[] = {
+static const char *doom_args[] = {
     // Always Vulkan: the OpenGL renderer is the game's other executable (DOOMx64.exe), which is not part of
     // this port. A saved r_renderAPI "0" (from picking OpenGL in the Video menu) would otherwise make every
     // launch fail; command-line cvars are applied after the config file, so this wins.
-    "+r_renderAPI", "1", NULL,
+    "+r_renderAPI", "1",
+    // Skip the id Software / Bethesda logo videos at startup, unless DOOM_INTRO_VIDEOS=1 (removed below).
+    // These come after the player's own arguments, so a "+com_skipIntroVideo 0" there would be overridden.
+    "+com_skipIntroVideo", "1",
+    NULL,
 };
+
+// DOOM_INTRO_VIDEOS=1 plays the logo videos: drop "+com_skipIntroVideo 1" before the runtime reads doom_args
+__attribute__((constructor)) static void doom_intro_videos(void) {
+    const char *e = rt_game_env("INTRO_VIDEOS");
+    if (!e || !*e || !strcmp(e, "0")) return;
+    for (int i = 0; doom_args[i]; i++)
+        if (!strcmp(doom_args[i], "+com_skipIntroVideo")) {
+            do doom_args[i] = doom_args[i + 2]; while (doom_args[i++]);
+            return;
+        }
+}
 
 const RtGame rt_game = {
     .name = "DOOM",
