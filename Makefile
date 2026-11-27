@@ -11,7 +11,7 @@ GAME_EXE ?= orig.exe
 APP_NAME  = DOOM
 BUNDLE_ID = com.nightsightproductions.doom-recomp
 APP_CATEGORY = public.app-category.action-games
-GAME_SRC  = src/game.c src/native_idtech.c
+GAME_SRC  = src/game.c src/native_idtech.c src/cloud_doom.c
 
 # The edition of the game: the Steam and GOG releases of DOOMx64vk.exe are different builds of the same code,
 # so the native replacements and instruction patches sit at different addresses (the two DLLs are identical).

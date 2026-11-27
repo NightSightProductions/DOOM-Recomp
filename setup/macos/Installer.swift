@@ -486,6 +486,8 @@ func runAsAdmin(_ shell: String) throws {
     }
 }
 
+func steamRunning() -> Bool { (try? runTool("/usr/bin/pgrep", ["-x", "steam_osx"], quiet: true)) == 0 }
+
 func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
 final class Installation {
@@ -603,12 +605,24 @@ final class Installation {
         if state.steamPlay && state.release == "GOG" {
             log("Skipping NightSight Recomp, the Steam Play tool: it needs DOOM in your Steam library, and this is the GOG release")
         } else if state.steamPlay {
+            // Steam rewrites its settings while it runs: with Steam open, an install from 1.1 would keep DOOM's
+            // tool choice on NSR's old ID ("nsr"), whose launches Steam doesn't sync Windows cloud saves for
+            let steamWasRunning = steamRunning()
+            if steamWasRunning {
+                log("Quitting Steam while NightSight Recomp updates its Steam Play settings")
+                _ = try? runTool("/usr/bin/osascript", ["-e", "tell application \"Steam\" to quit"], quiet: true)
+                for _ in 0..<60 where steamRunning() { Thread.sleep(forTimeInterval: 0.5) }
+            }
             log("Registering with NightSight Recomp, the Steam Play tool")
             let nsr = source.appendingPathComponent("framework/tools/nsr.py").path
             _ = try? runTool("/usr/bin/python3", [nsr, "install"], quiet: true)
             _ = try? runTool("/usr/bin/python3", [nsr, "add"] + nsrGameArgs + ["--app", app.path], quiet: true)
             // the per-game tool earlier versions registered: NSR replaces it
             try? fm.removeItem(at: legacySteamPlayTool)
+            if steamWasRunning {
+                log("Starting Steam again")
+                _ = try? runTool("/usr/bin/open", ["-a", "Steam"], quiet: true)
+            }
         }
 
         // The translated code is only needed while building.

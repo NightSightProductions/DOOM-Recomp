@@ -27,6 +27,8 @@ const RtGame rt_game = {
     .steam_app_id = 379720,
     .relaunch_prefix = "DOOMx64",
     .extra_args = doom_args,
+    // Mac-only Steam Cloud sync of the save folder; with NSR, src/cloud_doom.c turns it off and saves go to the
+    // folder Steam syncs with Windows instead
     .cloud_save_dir = "c/users/Player/Saved Games/id Software/DOOM/base/savegame.user/%llu",
     .cloud_prefix = "doomrecomp/",
     .computer_name = "DOOM-MAC",

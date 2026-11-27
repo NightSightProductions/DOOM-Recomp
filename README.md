@@ -62,13 +62,23 @@ Recomp (NSR)**. Steam then installs the Windows release of DOOM in its Mac libra
 library entry starts DOOM Recomp, with the Steam overlay (Shift+Tab) and playtime as for any Steam game.
 NotProton plugins switched on for the game are loaded into it too. CrossOver or Whisky isn't needed in that setup.
 
+With NSR, saves sync through Steam Cloud with the Windows version of DOOM, in both directions: DOOM Recomp keeps
+them in the folder Steam syncs for the Windows release (`steamapps/compatdata/379720/pfx/.../Saved Games/id Software`,
+linked from DOOM Recomp's own save folder), and Steam syncs it when DOOM starts and quits from Steam. The first launch
+after updating merges earlier DOOM Recomp saves in, one save slot at a time, keeping the newer of the two; nothing
+is deleted (the earlier folder stays as `id Software.local-<date>`, and a replaced Steam slot as
+`id Software.steam-<date>`). Without NSR, saves stay in DOOM Recomp's folder and sync between Macs through Steam
+Cloud as before. `DOOM_LOCAL_SAVES=1` keeps them there with NSR too.
+
 Leave DOOM's Steam launch options empty: with a tool other than NotProton's own, Steam for Mac can't start a
 launch that has them ("OS Error 260"). Settings for the game go into NSR instead, for example
 `python3 framework/tools/nsr.py set-env --appid 379720 NAME=value`. From a source build, `make steam-play`
 registers `build/DOOM.app` (pass `APP_PATH=/Applications/DOOM.app` for an installed one).
 
-NSR lives in `~/Library/Application Support/Steam/compatibilitytools.d/nsr`, and each launch is logged to
-`~/Library/Logs/nsr.log`. The uninstaller removes DOOM's entry and keeps the tool for other games; it also removes
+NSR lives in `~/Library/Application Support/Steam/compatibilitytools.d/nsr_proton`, and each launch is logged to
+`~/Library/Logs/nsr_proton.log`. (Its ID contains "proton" because Steam for Mac only syncs Windows Auto-Cloud saves
+for a tool named that way; the installer moves a 1.1 install over from `nsr`, quitting Steam for a moment while
+it updates Steam's settings.) The uninstaller removes DOOM's entry and keeps the tool for other games; it also removes
 the per-game `doom_recomp` tool earlier versions registered. Without NotProton the tool does nothing.
 
 ## How It Works
@@ -90,6 +100,7 @@ NightSightProductions' static recompiler, included as the `framework/` submodule
     bridges to the Steam for Mac client.
   - This repository holds what is specific to DOOM:
     - `src/game.c`: the game's settings for the runtime (executable, folders, Steam app ID, save sync);
+    - `src/cloud_doom.c`: with NSR, saves in the folder Steam syncs with Windows (see Steam Play above);
     - `src/native_idtech.c` and `tools/native.txt`: hot routines inside the executable replaced with
       native code (memcpy/memset/strlen, zlib's `inflate_fast`, id Tech's string compares);
     - `tools/patches.txt`: instruction patches (hiding the OpenGL option in the Video menu);
