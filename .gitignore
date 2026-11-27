@@ -22,5 +22,9 @@
 !/tools/native_gog.txt
 !/tools/patches_gog.txt
 !/tests/
+!/ios/
+/ios/build/
+/ios/app/*.xcodeproj/
 .DS_Store
 __pycache__/
+/ios/app/Assets.xcassets/
