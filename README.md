@@ -46,7 +46,8 @@ Some things worth knowing:
   - The GOG release always runs offline: the campaign, saves and settings work as with Steam, but there
     are no achievements, cloud saves or online features (GOG Galaxy is not supported). The Steam Play
     tool below needs DOOM in your Steam library, so the installer skips it for a GOG copy.
-  - The id Software and Bethesda logo videos at startup are skipped.
+  - The id Software and Bethesda logo videos at startup are skipped. To see them, set
+    `DOOM_INTRO_VIDEOS=1` (with NSR: `python3 framework/tools/nsr.py set-env --appid 379720 DOOM_INTRO_VIDEOS=1`).
   - Use **Adaptive** vertical sync. **On** is classic double-buffered vsync, which drops to 30 FPS
     whenever a frame runs long, as it does on Windows.
   - The fullscreen resolutions in the game's Video settings are scaled to your screen; windowed
@@ -206,7 +207,7 @@ static SPIRV-Tools.
 
      or from a terminal, with the log on screen:
 
-     `./build/boot orig.exe "/path/to/steamapps/common/DOOM" +com_skipIntroVideo 1`
+     `./build/boot orig.exe "/path/to/steamapps/common/DOOM"`
 
      Any arguments after the game folder are passed to the game. The retail game has no `map` command,
      so levels are loaded from the menu.
